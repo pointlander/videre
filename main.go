@@ -1,31 +1,44 @@
 package main
 
 import (
-	//"bufio"
+	"bytes"
 	"flag"
 	"fmt"
-	"github.com/gonum/plot"
-	"github.com/gonum/plot/plotter"
-	"github.com/gonum/plot/vg"
-	"github.com/gonum/plot/vg/draw"
-	"github.com/pointlander/gonn/gonn"
-	"github.com/skelterjohn/go.matrix"
 	"io/ioutil"
 	"log"
 	"math"
 	"math/rand"
-	//"os"
 	"regexp"
-)
+	"sort"
 
-var (
-	MASK   = [...]int{1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1}
-	N      = len(MASK)
-	OFFSET = N / 2
+	"github.com/gonum/plot"
+	"github.com/gonum/plot/plotter"
+	"github.com/gonum/plot/vg"
+	"github.com/gonum/plot/vg/draw"
+	"github.com/pointlander/compress"
+	"github.com/pointlander/gonn/gonn"
+	"github.com/skelterjohn/go.matrix"
 )
 
 const (
-	WIDTH = 1024
+	/* positive 0.29186143649789137 */
+	/* negative 0.29201439489824904 */
+	WIDTH = 64
+	/* positive 0.29235392892981227 */
+	/* negative 0.29227324757577744 */
+	/* WIDTH = 128 */
+	/* positive 0.2927573356999864 */
+	/* negative 0.29207994849840235 */
+	/* WIDTH = 256 */
+	/* positive 0.29328344536275514 */
+	/* negative 0.29238082271449056 */
+	/* WIDTH = 512 */
+	/* positive 0.2929455921927343 */
+	/* negative 0.292459823206983 */
+	/* WIDTH = 1024 */
+	/* positive 0.29303803957756586 */
+	/* negative 0.2921908853602002*/
+	/* WIDTH = 2048 */
 )
 
 type Vector [WIDTH]float64
@@ -50,7 +63,7 @@ func vectorForSymbol(symbol int) *Vector {
 }
 
 func vectorForPosition(position int) *Vector {
-	return randomVector(int64(position + 65536 + OFFSET))
+	return randomVector(int64(position + 65536 + 65536))
 }
 
 func (a *Vector) add(b *Vector) *Vector {
@@ -179,13 +192,44 @@ type SVM struct {
 	*matrix.DenseMatrix
 	compress   *gonn.NeuralNetwork
 	dictionary map[string]int
+	order int
+	MASK []int
+	N int
+	OFFSET int
 }
 
-func NewSymbolVectorModel() SVM {
-	return SVM{
-		matrix.Zeros(256*256, WIDTH),
-		gonn.DefaultNetwork(2*WIDTH, []int{WIDTH}, 2*WIDTH, false, 1),
-		make(map[string]int),
+func NewSymbolVectorModel(order int) SVM {
+	if order == 0 {
+		/* 0.2931170400700583
+		MASK   := []int{1, 0, 1}*/
+		/* 0.2924446954531014
+		MASK   := []int{1, 0, 1, 0, 1, 0, 1}*/
+		/* 0.2916530096666347 */
+		MASK   := []int{1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1}
+		N      := len(MASK)
+		OFFSET := N / 2
+		return SVM{
+			matrix.Zeros(256, WIDTH),
+			gonn.DefaultNetwork(2*WIDTH, []int{WIDTH}, 2*WIDTH, false, 1),
+			make(map[string]int),
+			order,
+			MASK,
+			N,
+			OFFSET,
+		}
+	} else {
+		MASK   := []int{1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1}
+		N      := len(MASK)
+		OFFSET := N / 2
+		return SVM{
+			matrix.Zeros(256*256, WIDTH),
+			gonn.DefaultNetwork(2*WIDTH, []int{WIDTH}, 2*WIDTH, false, 1),
+			make(map[string]int),
+			order,
+			MASK,
+			N,
+			OFFSET,
+		}
 	}
 }
 
@@ -197,18 +241,25 @@ func (svm SVM) TrainFile(file string) {
 	for _, s := range regexp.MustCompile("\\s").Split(string(data), -1) {
 		svm.dictionary[s]++
 	}
-	length := len(data) - OFFSET
-	context := func(i int) int {
-		var context int
-		for j := i - 8; j < i; j++ {
-			context = ((37 * context) + int(data[j])) & 0xFF
+	length := len(data) - svm.OFFSET
+	var context func(i int) int
+	if svm.order == 0 {
+		context = func(i int) int {
+			return int(data[i])
 		}
-		return (context << 8) | int(data[i])
+	} else {
+		context = func(i int) int {
+			var context int
+			for j := i - 8; j < i; j++ {
+				context = ((37 * context) + int(data[j])) & 0xFF
+			}
+			return (context << 8) | int(data[i])
+		}
 	}
-	for i := OFFSET + 8; i < length; i++ {
+	for i := svm.OFFSET + 8; i < length; i++ {
 		c, o := &Vector{}, &Vector{}
-		for j := -OFFSET; j <= OFFSET; j++ {
-			if MASK[j+OFFSET] == 0 {
+		for j := -svm.OFFSET; j <= svm.OFFSET; j++ {
+			if svm.MASK[j+svm.OFFSET] == 0 {
 				continue
 			}
 			vector := vectorForSymbol(context(i + j))
@@ -217,14 +268,14 @@ func (svm SVM) TrainFile(file string) {
 		}
 		l := c.norm().add(o.norm())
 		index := context(i)
-		for j := 0; j < 1024; j++ {
+		for j := 0; j < WIDTH; j++ {
 			svm.Set(index, j, svm.Get(index, j)+l[j])
 		}
 	}
 }
 
 /* http://nghiaho.com/?page_id=1030 */
-func (svm SVM) PCA() *matrix.DenseMatrix {
+func (svm SVM) PCA(size int) *matrix.DenseMatrix {
 	m := svm.DenseMatrix
 	norm(m)
 	subtract(m, mean(m))
@@ -235,9 +286,9 @@ func (svm SVM) PCA() *matrix.DenseMatrix {
 			log.Fatal(err)
 		}
 		rows := V.Rows()
-		v = matrix.Zeros(rows, 2)
+		v = matrix.Zeros(rows, size)
 		for i := 0; i < rows; i++ {
-			for j := 0; j < 2; j++ {
+			for j := 0; j < size; j++ {
 				v.Set(i, j, V.Get(i, j))
 			}
 		}
@@ -349,17 +400,89 @@ func (svm SVM) TrainNN() {
 	svm.compress.TrainSet(set, 1)
 }
 
+type Symbol struct {
+	symbol int
+	meaning float64
+}
+
+type Symbols []Symbol
+
+func (s Symbols) Len() int {
+	return len(s)
+}
+
+func (s Symbols) Less(i, j int) bool {
+	return s[i].meaning > s[j].meaning
+}
+
+func (s Symbols) Swap(i, j int) {
+	s[i], s[j] = s[j], s[i]
+}
+
 var (
 	pca  = flag.Bool("pca", false, "train the model and then visualize with pca")
 	hash = flag.Bool("hash", false, "train the model on tree books and then compare")
 	word = flag.Bool("word", false, "word vector demo")
+	press = flag.Bool("compress", false, "compression demo")
 )
 
 func main() {
 	flag.Parse()
 
+	if *press {
+		svm := NewSymbolVectorModel(0)
+		files, err := ioutil.ReadDir("data")
+		if err != nil {
+			log.Fatal(err)
+		}
+		for _, file := range files {
+			fmt.Println("data/" + file.Name())
+			svm.TrainFile("data/" + file.Name())
+		}
+		/*svm.TrainFile("data/pg1661.txt")*/
+
+		r := svm.PCA(1)
+		rows := r.Rows()
+		symbols := make(Symbols, rows)
+		for i := 0; i < rows; i++ {
+			symbols[i].symbol = i
+			symbols[i].meaning = r.Get(i, 0)
+		}
+		sort.Stable(symbols)
+		symbolMap := make([]int, rows)
+		for i := 0; i < rows; i++ {
+			fmt.Printf("%v %q %v\n", i, symbols[i].symbol, symbols[i].meaning)
+			symbolMap[symbols[i].symbol] = i
+		}
+
+		text, err := ioutil.ReadFile("data/pg1661.txt")
+		if err != nil {
+			log.Fatal(err)
+		}
+		data, buffer, in := make([]byte, len(text)), &bytes.Buffer{}, make(chan []byte, 1)
+		copy(data, text)
+		in <- data
+		close(in)
+		compress.BijectiveBurrowsWheelerCoder(in).MoveToFrontRunLengthCoder().AdaptiveCoder().Code(buffer)
+		fmt.Printf("compressed=%v\n", buffer.Len())
+		fmt.Printf("ratio=%v\n", float64(buffer.Len()) / float64(len(text)))
+
+		copy(data, text)
+		for i := range data {
+			data[i] = byte(symbolMap[data[i]])
+		}
+		in = make(chan []byte, 1)
+		buffer.Reset()
+		in <- data
+		close(in)
+		compress.BijectiveBurrowsWheelerCoder(in).MoveToFrontRunLengthCoder().AdaptiveCoder().Code(buffer)
+		fmt.Println("mapped")
+		fmt.Printf("compressed=%v\n", buffer.Len())
+		fmt.Printf("ratio=%v\n", float64(buffer.Len()) / float64(len(text)))
+	}
+
 	if *word {
-		svm := NewSymbolVectorModel()
+		svm := NewSymbolVectorModel(1)
 		files, err := ioutil.ReadDir("data")
 		if err != nil {
 			log.Fatal(err)
@@ -403,22 +526,22 @@ func main() {
 	}
 
 	if *hash {
-		svm := NewSymbolVectorModel()
+		svm := NewSymbolVectorModel(1)
 		svm.TrainFile("data/pg1661.txt")
-		svm1 := NewSymbolVectorModel()
+		svm1 := NewSymbolVectorModel(1)
 		svm1.TrainFile("data/pg2852.txt")
 		s1 := svm1.Similarity(svm)
 		fmt.Printf("similarity between two Doyle books: %v\n", s1)
-		svm2 := NewSymbolVectorModel()
+		svm2 := NewSymbolVectorModel(1)
 		svm2.TrainFile("data/pg2267.txt")
 		s2 := svm2.Similarity(svm)
 		fmt.Printf("similarity between Doyle and Shakespeare books: %v\n", s2)
 	}
 
 	if *pca {
-		svm := NewSymbolVectorModel()
+		svm := NewSymbolVectorModel(1)
 		svm.TrainFile("data/pg1661.txt")
-		r := svm.PCA()
+		r := svm.PCA(2)
 		rows := r.Rows()
 		points := make(plotter.XYs, rows)
 		for i := 0; i < rows; i++ {
