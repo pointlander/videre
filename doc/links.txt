@@ -1,2 +1,8 @@
 http://www-01.sil.org/linguistics/wordlists/english/
 http://www.cse.psu.edu/~kasivisw/randsketch.pdf
+simple rnn implementation:
+https://github.com/goml/gobrain
+use Taken's theorem with rnn:
+https://news.ycombinator.com/item?id=10404452
+train rnn to output embedding vector:
+https://github.com/cmusatyalab/openface

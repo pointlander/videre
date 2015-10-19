@@ -51,8 +51,8 @@ func randomVector(seed int64) *Vector {
 	}
 	vector, random := Vector{}, rand.New(rand.NewSource(seed))
 	for i := range vector {
-		//vector[i] = 2 * random.Float64() - 1
-		vector[i] = random.Float64()
+		vector[i] = 2*random.Float64() - 1
+		//vector[i] = random.Float64()
 	}
 	cache[seed] = &vector
 	return &vector
@@ -192,10 +192,10 @@ type SVM struct {
 	*matrix.DenseMatrix
 	compress   *gonn.NeuralNetwork
 	dictionary map[string]int
-	order int
-	MASK []int
-	N int
-	OFFSET int
+	order      int
+	MASK       []int
+	N          int
+	OFFSET     int
 }
 
 func NewSymbolVectorModel(order int) SVM {
@@ -205,8 +205,8 @@ func NewSymbolVectorModel(order int) SVM {
 		/* 0.2924446954531014
 		MASK   := []int{1, 0, 1, 0, 1, 0, 1}*/
 		/* 0.2916530096666347 */
-		MASK   := []int{1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1}
-		N      := len(MASK)
+		MASK := []int{1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1}
+		N := len(MASK)
 		OFFSET := N / 2
 		return SVM{
 			matrix.Zeros(256, WIDTH),
@@ -218,8 +218,8 @@ func NewSymbolVectorModel(order int) SVM {
 			OFFSET,
 		}
 	} else {
-		MASK   := []int{1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1}
-		N      := len(MASK)
+		MASK := []int{1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1}
+		N := len(MASK)
 		OFFSET := N / 2
 		return SVM{
 			matrix.Zeros(256*256, WIDTH),
@@ -401,7 +401,7 @@ func (svm SVM) TrainNN() {
 }
 
 type Symbol struct {
-	symbol int
+	symbol  int
 	meaning float64
 }
 
@@ -420,9 +420,9 @@ func (s Symbols) Swap(i, j int) {
 }
 
 var (
-	pca  = flag.Bool("pca", false, "train the model and then visualize with pca")
-	hash = flag.Bool("hash", false, "train the model on tree books and then compare")
-	word = flag.Bool("word", false, "word vector demo")
+	pca   = flag.Bool("pca", false, "train the model and then visualize with pca")
+	hash  = flag.Bool("hash", false, "train the model on tree books and then compare")
+	word  = flag.Bool("word", false, "word vector demo")
 	press = flag.Bool("compress", false, "compression demo")
 )
 
@@ -465,7 +465,7 @@ func main() {
 		close(in)
 		compress.BijectiveBurrowsWheelerCoder(in).MoveToFrontRunLengthCoder().AdaptiveCoder().Code(buffer)
 		fmt.Printf("compressed=%v\n", buffer.Len())
-		fmt.Printf("ratio=%v\n", float64(buffer.Len()) / float64(len(text)))
+		fmt.Printf("ratio=%v\n", float64(buffer.Len())/float64(len(text)))
 
 		copy(data, text)
 		for i := range data {
@@ -478,7 +478,7 @@ func main() {
 		compress.BijectiveBurrowsWheelerCoder(in).MoveToFrontRunLengthCoder().AdaptiveCoder().Code(buffer)
 		fmt.Println("mapped")
 		fmt.Printf("compressed=%v\n", buffer.Len())
-		fmt.Printf("ratio=%v\n", float64(buffer.Len()) / float64(len(text)))
+		fmt.Printf("ratio=%v\n", float64(buffer.Len())/float64(len(text)))
 	}
 
 	if *word {
@@ -526,16 +526,30 @@ func main() {
 	}
 
 	if *hash {
-		svm := NewSymbolVectorModel(1)
+		order := 1
+		svm := NewSymbolVectorModel(order)
 		svm.TrainFile("data/pg1661.txt")
-		svm1 := NewSymbolVectorModel(1)
+		svm1 := NewSymbolVectorModel(order)
 		svm1.TrainFile("data/pg2852.txt")
 		s1 := svm1.Similarity(svm)
 		fmt.Printf("similarity between two Doyle books: %v\n", s1)
-		svm2 := NewSymbolVectorModel(1)
+		svm2 := NewSymbolVectorModel(order)
 		svm2.TrainFile("data/pg2267.txt")
 		s2 := svm2.Similarity(svm)
 		fmt.Printf("similarity between Doyle and Shakespeare books: %v\n", s2)
+		s3 := svm2.Similarity(svm1)
+		fmt.Printf("similarity between Doyle and Shakespeare books: %v\n", s3)
+
+		svm3 := NewSymbolVectorModel(order)
+		/* pg1112.txt doesn't seem to work */
+		svm3.TrainFile("data/pg2265.txt")
+		s4 := svm3.Similarity(svm)
+		fmt.Printf("similarity between Doyle and Shakespeare books: %v\n", s4)
+		s5 := svm3.Similarity(svm1)
+		fmt.Printf("similarity between Doyle and Shakespeare books: %v\n", s5)
+
+		s6 := svm2.Similarity(svm3)
+		fmt.Printf("similarity between two Shakespeare books: %v\n", s6)
 	}
 
 	if *pca {
